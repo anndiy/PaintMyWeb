@@ -1,6 +1,15 @@
 const RULES_KEY = 'paintmyweb.rules.v1';
 const SCRIPT_PREFIX = 'paintmyweb-restore-';
 
+// Multiple clicks can save paints in quick succession. Serialize all storage mutations
+// to prevent overlapping read-modify-write operations from dropping a saved rule.
+let storageMutationQueue = Promise.resolve();
+function queueStorageMutation(task) {
+  const result = storageMutationQueue.then(task, task);
+  storageMutationQueue = result.catch(() => undefined);
+  return result;
+}
+
 function pageKeyFromUrl(rawUrl) {
   const url = new URL(rawUrl);
   return `${url.origin}${url.pathname}${url.search}`;
@@ -110,10 +119,14 @@ async function handleMessage(message, sender) {
         return { ok: true, persisted: false, reason: 'site-permission-missing' };
       }
       await registerPersistentRestorer(rule.url);
-      const rules = await readRules();
-      rules.push({ ...rule, createdAt: Number(rule.createdAt) || Date.now() });
-      await writeRules(rules);
-      return { ok: true, persisted: true };
+      return queueStorageMutation(async () => {
+        const rules = await readRules();
+        // Replacing by ID makes a retry idempotent instead of creating duplicates.
+        const next = rules.filter(existing => existing.id !== rule.id);
+        next.push({ ...rule, createdAt: Number(rule.createdAt) || Date.now() });
+        await writeRules(next);
+        return { ok: true, persisted: true };
+      });
     }
 
     case 'PMW_DELETE_RULE': {
@@ -124,13 +137,12 @@ async function handleMessage(message, sender) {
       if (senderUrl && pageKeyFromUrl(senderUrl) !== message.pageKey) {
         throw new Error('The paint rule belongs to a different page.');
       }
-      const rules = await readRules();
-      const index = rules.findIndex(rule => rule.id === message.ruleId && rule.pageKey === message.pageKey);
-      if (index >= 0) {
-        rules.splice(index, 1);
-        await writeRules(rules);
-      }
-      return { ok: true };
+      return queueStorageMutation(async () => {
+        const rules = await readRules();
+        const remaining = rules.filter(rule => !(rule.id === message.ruleId && rule.pageKey === message.pageKey));
+        if (remaining.length !== rules.length) await writeRules(remaining);
+        return { ok: true };
+      });
     }
 
     case 'PMW_CLEAR_PAGE': {
@@ -139,10 +151,12 @@ async function handleMessage(message, sender) {
       if (senderUrl && pageKeyFromUrl(senderUrl) !== message.pageKey) {
         throw new Error('PaintMyWeb can only clear paints for the current page.');
       }
-      const rules = await readRules();
-      const remaining = rules.filter(rule => rule.pageKey !== message.pageKey);
-      await writeRules(remaining);
-      return { ok: true, removed: rules.length - remaining.length };
+      return queueStorageMutation(async () => {
+        const rules = await readRules();
+        const remaining = rules.filter(rule => rule.pageKey !== message.pageKey);
+        await writeRules(remaining);
+        return { ok: true, removed: rules.length - remaining.length };
+      });
     }
 
     case 'PMW_GET_STATUS': {

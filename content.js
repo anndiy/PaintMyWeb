@@ -1,7 +1,7 @@
 (() => {
   // The popup may inject this file even when the persistent content script is already running.
-  if (globalThis.__PAINTMYWEB_CONTENT_V1__) return;
-  globalThis.__PAINTMYWEB_CONTENT_V1__ = true;
+  if (globalThis.__PAINTMYWEB_CONTENT_V2__) return;
+  globalThis.__PAINTMYWEB_CONTENT_V2__ = true;
 
   const HOST_ID = 'paintmyweb-floating-host';
   const MODES = {
@@ -305,31 +305,53 @@
   }
 
   async function paintElement(element) {
-    const modeConfig = MODES[mode];
-    const rule = createRule(element, modeConfig.property, currentColor);
+    // Capture the active mode and color at click time. The user may adjust the palette
+    // while the storage operation is completing, but this paint must stay deterministic.
+    const selectedMode = mode;
+    const selectedColor = currentColor;
+    const modeConfig = MODES[selectedMode];
+    const rule = createRule(element, modeConfig.property, selectedColor);
     if (!rule) {
-      showToast('Could not create a safe locator for that element.');
+      showToast('Could not create a safe locator for that element. Try another target.');
       return;
     }
 
     const action = { rule, persisted: false, element, applied: false };
     if (!applyRuleToElement(element, rule)) {
-      showToast('That element cannot be painted.');
+      showToast('That element cannot be painted. Try another target.');
       return;
     }
     action.applied = true;
     activeActions.push(action);
     updateHistoryStatus();
-    stopSelecting();
+
+    // IMPORTANT: remain in selection mode so a user can paint any number of targets
+    // after choosing Element or Text once. Escape or the Done painting button exits.
+    const selectionButton = shadow?.getElementById('start-selecting');
+    if (selectionButton) selectionButton.textContent = 'Done painting';
 
     const result = await sendSaveRule(rule, persistentForThisSession);
     action.persisted = result.persisted;
+
+    // Undo or Clear may be clicked while the storage request is still pending. If this
+    // action has already been removed from the active stack, remove its late-saved rule.
+    if (!activeActions.includes(action)) {
+      if (action.persisted) {
+        try {
+          await chrome.runtime.sendMessage({ type: 'PMW_DELETE_RULE', ruleId: rule.id, pageKey: rule.pageKey });
+        } catch (_) { /* The user-facing undo/clear already happened. */ }
+      }
+      updateHistoryStatus();
+      return;
+    }
+
+    const typeLabel = selectedMode === 'element' ? 'Background' : 'Text';
     if (result.persisted) {
-      showToast(mode === 'element' ? 'Element color saved for this page.' : 'Text color saved for this page.');
+      showToast(`${typeLabel} color saved. Click another element, or press Escape to finish.`);
     } else if (persistentForThisSession) {
-      showToast('Applied, but not saved. Check site permission and try again.');
+      showToast(`${typeLabel} color applied, but not saved. Click another target or check site permission.`);
     } else {
-      showToast('Applied for this session. Reopen the extension to enable saving.');
+      showToast(`${typeLabel} color applied for this session. Click another element, or press Escape to finish.`);
     }
     updateHistoryStatus();
   }
@@ -391,7 +413,9 @@
     const label = shadow.getElementById('mode-label');
     if (label) label.textContent = mode === 'element' ? 'Background color' : 'Text color';
     const selectionButton = shadow.getElementById('start-selecting');
-    if (selectionButton) selectionButton.textContent = mode === 'element' ? 'Pick element to paint' : 'Pick text to paint';
+    if (selectionButton) {
+      selectionButton.textContent = isSelecting ? 'Done painting' : (mode === 'element' ? 'Pick element to paint' : 'Pick text to paint');
+    }
     if (isSelecting) updateHighlightLabel();
   }
 
@@ -426,8 +450,17 @@
     highlight.style.display = 'none';
     highlightLabel.style.display = 'none';
     panel.classList.add('is-picking');
-    shadow.getElementById('start-selecting').textContent = 'Move over an element…';
-    showToast('Hover over the page, then click the element you want to paint.');
+    shadow.getElementById('start-selecting').textContent = 'Done painting';
+    showToast('Hover and click to paint multiple targets. Press Escape or Done painting to finish.');
+  }
+
+  function toggleSelecting() {
+    if (isSelecting) {
+      stopSelecting();
+      showToast('Painting stopped.');
+      return;
+    }
+    startSelecting();
   }
 
   function stopSelecting() {
@@ -625,7 +658,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 3 14 10-7 1-3 7L5 3Z"/></svg>
             Pick element to paint
           </button>
-          <p class="hint"><b>How to paint:</b> choose a mode, then click Pick. Hover over the webpage to preview the target outline, then click the exact element. Press <b>Escape</b> to cancel.</p>
+          <p class="hint"><b>How to paint:</b> choose Element or Text once, then click Pick once. Keep clicking different targets to paint them all with the selected mode and color. Click <b>Done painting</b> or press <b>Escape</b> to finish.</p>
 
           <div class="save-row"><span class="dot" id="save-dot"></span><span class="save-copy"><b id="save-status">Session-only painting</b><br>Paints are stored on this device, never sent to a server.</span></div>
           <div class="history-status" id="history-status">0 active paints on this page</div>
@@ -647,7 +680,7 @@
     for (const button of shadow.querySelectorAll('[data-mode]')) {
       button.addEventListener('click', () => setMode(button.dataset.mode));
     }
-    shadow.getElementById('start-selecting').addEventListener('click', startSelecting);
+    shadow.getElementById('start-selecting').addEventListener('click', toggleSelecting);
     shadow.getElementById('close-panel').addEventListener('click', closePanel);
     shadow.getElementById('undo-paint').addEventListener('click', () => void undoLastPaint());
     shadow.getElementById('clear-page').addEventListener('click', async () => {
