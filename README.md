@@ -34,6 +34,7 @@ It is deliberately **not a theme maker**. There are no shared themes, user accou
 - **Interactive color wheel:** pick a hue and saturation, adjust brightness, or enter a HEX value directly.
 - **Element paint:** apply the selected color to an element's `background-color`.
 - **Text paint:** apply the selected color to an element's `color`.
+- **Continuous painting mode (v2):** choose Element or Text once, start picking once, and click as many targets as you need. The mode and color remain active between clicks; no need to reselect the mode or repeatedly press Pick.
 - **Live target preview:** a high-contrast outline and a mode label show which element is under the pointer before you apply the paint.
 - **Safer selection:** explicitly enter selection mode, click the intended target, or press `Escape` to cancel. Selection clicks are intercepted so links and buttons do not accidentally activate.
 - **Persistent paints:** opt into site access so saved colors can be restored after refresh and on later visits to the same page URL.
@@ -45,7 +46,7 @@ It is deliberately **not a theme maker**. There are no shared themes, user accou
 
 ## Install in Chrome
 
-PaintMyWeb is supplied as an unpacked Chrome extension using Manifest V3. It is not currently a Chrome Web Store release.
+PaintMyWeb v2.0.0 is supplied as an unpacked Chrome extension using Manifest V3. It is not currently a Chrome Web Store release.
 
 1. Download and extract `PaintMyWeb.zip`.
 2. Open `chrome://extensions` in Chrome.
@@ -69,10 +70,11 @@ PaintMyWeb is supplied as an unpacked Chrome extension using Manifest V3. It is 
 1. Open a webpage where you want to make a personal color adjustment.
 2. Click the PaintMyWeb extension icon and open the floating palette.
 3. Pick a color using the wheel, brightness control, or HEX field.
-4. Choose **Element** to change the target's background or **Text** to change its text color.
-5. Start element selection and move the pointer over the page. The outline previews the current target.
-6. Click the intended element to apply the color. Press `Escape` to cancel selection.
-7. Use **Undo** to reverse a recent paint, or **Clear page** to remove PaintMyWeb paints for the current page.
+4. Choose **Element** to change target backgrounds or **Text** to change text colors. Choose the mode once for the batch.
+5. Click **Pick element to paint** or **Pick text to paint** once. Move the pointer over the page; the outline previews the target.
+6. Click a target to paint it. **PaintMyWeb stays in selection mode**, so you can keep clicking as many targets as needed using the same mode and color.
+7. To switch from backgrounds to text or vice versa, choose the other mode in the floating palette. To finish the batch, click **Done painting** or press `Escape`.
+8. Use **Undo** to reverse a recent paint, or **Clear page** to remove PaintMyWeb paints for the current page.
 
 Disable **Keep changes after refresh** when you only want to experiment in the current page session without opting into persistent site access.
 
@@ -182,7 +184,9 @@ No compilation or package installation is required.
 
 - [ ] Load unpacked from the folder that contains `manifest.json`.
 - [ ] Launch on a regular HTTPS page and on an HTTP page.
-- [ ] Paint a background color and a text color on separate elements.
+- [ ] Paint a background color on multiple elements in one continuous selection session.
+- [ ] Paint text on multiple elements in one continuous selection session.
+- [ ] Switch modes mid-session and confirm the next click uses the newly selected mode.
 - [ ] Confirm the outline follows the target while the pointer moves.
 - [ ] Press `Escape` and confirm target selection cancels.
 - [ ] Confirm selecting a link or button does not navigate or activate it.
