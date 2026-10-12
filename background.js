@@ -1,5 +1,9 @@
 const RULES_KEY = 'paintmyweb.rules.v1';
 const SCRIPT_PREFIX = 'paintmyweb-restore-';
+const PENDING_OPEN_KEY = 'paintmyweb.pending-open.v1';
+const LAST_OPEN_ERROR_KEY = 'paintmyweb.last-open-error.v1';
+const PENDING_OPEN_TTL_MS = 2 * 60 * 1000;
+const pendingOpenInFlight = new Set();
 
 // Multiple clicks can save paints in quick succession. Serialize all storage mutations
 // to prevent overlapping read-modify-write operations from dropping a saved rule.
@@ -75,10 +79,142 @@ async function writeRules(rules) {
   await chrome.storage.local.set({ [RULES_KEY]: rules });
 }
 
+
+
+async function preparePendingOpen(tabId, rawUrl, token) {
+  if (!Number.isInteger(tabId) || typeof rawUrl !== 'string' || typeof token !== 'string' || !token) {
+    throw new Error('Missing tab, URL, or launch token.');
+  }
+  const pattern = patternFromUrl(rawUrl);
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab?.url || patternFromUrl(tab.url) !== pattern) {
+    throw new Error('The active page changed. Reopen PaintMyWeb and try again.');
+  }
+  const pending = { tabId, url: rawUrl, pattern, token, createdAt: Date.now() };
+  await chrome.storage.session.set({ [PENDING_OPEN_KEY]: pending });
+  return { ok: true, token };
+}
+
+async function cancelPendingOpen(token) {
+  const result = await chrome.storage.session.get(PENDING_OPEN_KEY);
+  const pending = result[PENDING_OPEN_KEY];
+  if (pending && (!token || pending.token === token)) {
+    await chrome.storage.session.remove(PENDING_OPEN_KEY);
+  }
+  return { ok: true };
+}
+
+async function launchPaletteInTab(pending) {
+  const tab = await chrome.tabs.get(pending.tabId);
+  if (!tab?.url) throw new Error('The original tab is no longer available.');
+  const currentPattern = patternFromUrl(tab.url);
+  if (currentPattern !== pending.pattern) {
+    throw new Error('The tab has navigated to a different site. Reopen PaintMyWeb on the current page.');
+  }
+
+  const currentUrl = tab.url;
+  let persistent = true;
+  try {
+    await registerPersistentRestorer(currentUrl);
+  } catch (error) {
+    // Painting can still start in the current tab if persistent registration fails.
+    persistent = false;
+  }
+
+  await chrome.scripting.executeScript({ target: { tabId: pending.tabId }, files: ['content.js'] });
+  const response = await chrome.tabs.sendMessage(pending.tabId, {
+    type: 'PMW_OPEN',
+    persistent,
+    sourceUrl: currentUrl
+  });
+  if (!response?.ok) {
+    throw new Error(response?.error || 'The palette could not connect to this page. Try reopening PaintMyWeb.');
+  }
+
+  await chrome.action.setBadgeText({ tabId: pending.tabId, text: '' }).catch(() => {});
+  await chrome.storage.session.remove(LAST_OPEN_ERROR_KEY);
+  return { ok: true, persistent };
+}
+
+async function completePendingOpen(token, requiredPattern = null) {
+  // This function can be triggered by both permissions.onAdded and the still-open
+  // popup. Claim the token synchronously to avoid opening the palette twice.
+  if (pendingOpenInFlight.has(token)) return { ok: true, alreadyOpening: true };
+  pendingOpenInFlight.add(token);
+  try {
+    const result = await chrome.storage.session.get(PENDING_OPEN_KEY);
+    const pending = result[PENDING_OPEN_KEY];
+    if (!pending || pending.token !== token) return { ok: true, alreadyHandled: true };
+
+    if (Date.now() - pending.createdAt > PENDING_OPEN_TTL_MS) {
+      await chrome.storage.session.remove(PENDING_OPEN_KEY);
+      return { ok: false, error: 'The permission request expired. Reopen PaintMyWeb and try again.' };
+    }
+    if (requiredPattern && pending.pattern !== requiredPattern) return { ok: true, ignored: true };
+    if (!(await hasHostPermission(pending.pattern))) {
+      return { ok: false, waitingForPermission: true };
+    }
+
+    try {
+      const launched = await launchPaletteInTab(pending);
+      await chrome.storage.session.remove(PENDING_OPEN_KEY);
+      return launched;
+    } catch (error) {
+      const message = error?.message || 'PaintMyWeb could not open the palette after permission was granted.';
+      await chrome.storage.session.set({
+        [LAST_OPEN_ERROR_KEY]: { tabId: pending.tabId, message, createdAt: Date.now() }
+      });
+      await chrome.action.setBadgeText({ tabId: pending.tabId, text: '!' }).catch(() => {});
+      await chrome.action.setBadgeBackgroundColor({ tabId: pending.tabId, color: '#B84A3A' }).catch(() => {});
+      await chrome.storage.session.remove(PENDING_OPEN_KEY);
+      return { ok: false, error: message };
+    }
+  } finally {
+    pendingOpenInFlight.delete(token);
+  }
+}
+
+async function handlePermissionAdded(added) {
+  if (!Array.isArray(added?.origins) || !added.origins.length) return;
+  const result = await chrome.storage.session.get(PENDING_OPEN_KEY);
+  const pending = result[PENDING_OPEN_KEY];
+  if (!pending) return;
+  if (Date.now() - pending.createdAt > PENDING_OPEN_TTL_MS) {
+    await chrome.storage.session.remove(PENDING_OPEN_KEY);
+    return;
+  }
+  if (!added.origins.includes(pending.pattern)) return;
+  await completePendingOpen(pending.token, pending.pattern);
+}
+
 async function handleMessage(message, sender) {
   if (!message || typeof message.type !== 'string') return { ok: false, error: 'Invalid request.' };
 
   switch (message.type) {
+    case 'PMW_PREPARE_OPEN': {
+      return preparePendingOpen(message.tabId, message.url, message.token);
+    }
+
+    case 'PMW_CANCEL_PENDING_OPEN': {
+      return cancelPendingOpen(message.token);
+    }
+
+    case 'PMW_COMPLETE_PENDING_OPEN': {
+      if (typeof message.token !== 'string' || !message.token) throw new Error('Missing launch token.');
+      return completePendingOpen(message.token);
+    }
+
+    case 'PMW_GET_LAST_OPEN_ERROR': {
+      const result = await chrome.storage.session.get(LAST_OPEN_ERROR_KEY);
+      const error = result[LAST_OPEN_ERROR_KEY];
+      if (error && message.tabId === error.tabId && Date.now() - error.createdAt < PENDING_OPEN_TTL_MS) {
+        await chrome.storage.session.remove(LAST_OPEN_ERROR_KEY);
+        await chrome.action.setBadgeText({ tabId: message.tabId, text: '' }).catch(() => {});
+        return { ok: true, error: error.message };
+      }
+      return { ok: true, error: null };
+    }
+
     case 'PMW_REGISTER_SITE': {
       if (typeof message.url !== 'string') throw new Error('Missing site URL.');
       const result = await registerPersistentRestorer(message.url);
@@ -185,6 +321,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, error: error?.message || 'Unexpected extension error.' }));
   return true;
+});
+
+chrome.permissions.onAdded.addListener((added) => {
+  handlePermissionAdded(added).catch(() => {});
 });
 
 chrome.runtime.onInstalled.addListener(() => {

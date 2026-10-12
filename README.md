@@ -14,6 +14,12 @@ PaintMyWeb lets you pick a color, choose what to paint, preview a target directl
 
 It is deliberately **not a theme maker**. There are no shared themes, user accounts, servers, analytics, or theme marketplace. Paints are stored locally in your browser and can persist across refreshes when you grant access to the relevant site.
 
+## v2.1.2
+
+- Fixed first-use site permission flow. The launcher prepares a one-time pending open before requesting optional host access. If Chrome closes the popup while the permission prompt is accepted, the service worker opens the palette after `chrome.permissions.onAdded`.
+- The launcher also completes the same pending request if it remains open, with duplicate-launch protection so the palette is not opened twice.
+- Failed background handoffs show a toolbar badge and the error is surfaced the next time the launcher opens.
+
 ## Contents
 
 - [Features](#features)
@@ -56,7 +62,7 @@ This bug-fix release recreates the floating palette if a single-page app replace
 
 ## Install in Chrome
 
-PaintMyWeb v2.1.1 is supplied as an unpacked Chrome extension using Manifest V3. It is not currently a Chrome Web Store release.
+PaintMyWeb v2.1.2 is supplied as an unpacked Chrome extension using Manifest V3. It is not currently a Chrome Web Store release.
 
 1. Download and extract `PaintMyWeb.zip`.
 2. Open `chrome://extensions` in Chrome.
