@@ -5,8 +5,8 @@
 
   const HOST_ID = 'paintmyweb-floating-host';
   const MODES = {
-    element: { property: 'background-color', label: 'ELEMENT PAINT' },
-    text: { property: 'color', label: 'TEXT PAINT' }
+    element: { property: 'background-color', label: 'FILL' },
+    text: { property: 'color', label: 'TEXT' }
   };
 
   let host = null;
@@ -20,7 +20,7 @@
   let currentColor = '#F1B39E';
   let hue = 13;
   let saturation = 0.34;
-  let value = 0.95;
+  let shadePosition = 52.75;
   let persistentForThisSession = false;
   let isSelecting = false;
   let currentTarget = null;
@@ -82,17 +82,37 @@
     return { h, s: max === 0 ? 0 : delta / max, v: max };
   }
 
+  const initialHsv = hexToHsv(currentColor);
+  hue = initialHsv.h;
+  saturation = initialHsv.s;
+  shadePosition = 50 + (1 - initialHsv.v) * 50;
+
   function colorFromWheel() {
-    const [r, g, b] = hsvToRgb(hue, saturation, value);
-    currentColor = rgbToHex(r, g, b);
+    const base = hsvToRgb(hue, saturation, 1);
+    const position = Math.max(0, Math.min(100, shadePosition));
+    let rgb;
+    if (position <= 50) {
+      const mix = position / 50;
+      rgb = base.map(channel => 255 + (channel - 255) * mix);
+    } else {
+      const mix = 1 - (position - 50) / 50;
+      rgb = base.map(channel => channel * mix);
+    }
+    currentColor = rgbToHex(...rgb);
     updateColorReadout();
   }
 
   function updateColorReadout() {
     const swatch = shadow?.getElementById('selected-color');
     const hexField = shadow?.getElementById('hex-value');
+    const shadeControl = shadow?.getElementById('brightness');
     if (swatch) swatch.style.background = currentColor;
     if (hexField && hexField !== shadow.activeElement) hexField.value = currentColor;
+    if (shadeControl) {
+      const base = rgbToHex(...hsvToRgb(hue, saturation, 1));
+      shadeControl.style.setProperty('--shade-color', base);
+      if (shadeControl !== shadow.activeElement) shadeControl.value = String(Math.round(shadePosition));
+    }
     const contrast = relativeLuminance(currentColor) > 0.55 ? '#171312' : '#fff7f2';
     if (swatch) swatch.style.color = contrast;
     drawWheel();
@@ -122,7 +142,7 @@
         if (distance <= radius) {
           const angle = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
           const sat = Math.min(1, distance / radius);
-          const [r, g, b] = hsvToRgb(angle, sat, value);
+          const [r, g, b] = hsvToRgb(angle, sat, 1);
           image.data[index] = r;
           image.data[index + 1] = g;
           image.data[index + 2] = b;
@@ -291,7 +311,7 @@
 
   function updateHistoryStatus() {
     const label = shadow?.getElementById('history-status');
-    if (label) label.textContent = `${activeActions.length} active paint${activeActions.length === 1 ? '' : 's'} on this page`;
+    if (label) label.textContent = `${activeActions.length} paint${activeActions.length === 1 ? '' : 's'}`;
   }
 
   async function sendSaveRule(rule, persist) {
@@ -312,13 +332,13 @@
     const modeConfig = MODES[selectedMode];
     const rule = createRule(element, modeConfig.property, selectedColor);
     if (!rule) {
-      showToast('Could not create a safe locator for that element. Try another target.');
+      showToast('Cannot target that element.');
       return;
     }
 
     const action = { rule, persisted: false, element, applied: false };
     if (!applyRuleToElement(element, rule)) {
-      showToast('That element cannot be painted. Try another target.');
+      showToast('Cannot paint that element.');
       return;
     }
     action.applied = true;
@@ -328,7 +348,7 @@
     // IMPORTANT: remain in selection mode so a user can paint any number of targets
     // after choosing Element or Text once. Escape or the Done painting button exits.
     const selectionButton = shadow?.getElementById('start-selecting');
-    if (selectionButton) selectionButton.textContent = 'Done painting';
+    if (selectionButton) { selectionButton.textContent = 'Done'; selectionButton.setAttribute('aria-label', 'Done painting'); }
 
     const result = await sendSaveRule(rule, persistentForThisSession);
     action.persisted = result.persisted;
@@ -345,20 +365,19 @@
       return;
     }
 
-    const typeLabel = selectedMode === 'element' ? 'Background' : 'Text';
     if (result.persisted) {
-      showToast(`${typeLabel} color saved. Click another element, or press Escape to finish.`);
+      showToast('Saved');
     } else if (persistentForThisSession) {
-      showToast(`${typeLabel} color applied, but not saved. Click another target or check site permission.`);
+      showToast('Painted, not saved');
     } else {
-      showToast(`${typeLabel} color applied for this session. Click another element, or press Escape to finish.`);
+      showToast('Painted');
     }
     updateHistoryStatus();
   }
 
   async function undoLastPaint() {
     if (!activeActions.length) {
-      showToast('There are no paints to undo on this page.');
+      showToast('Nothing to undo');
       return;
     }
     const last = activeActions[activeActions.length - 1];
@@ -377,7 +396,7 @@
     }
     applyActiveActionsToCurrentDom();
     updateHistoryStatus();
-    showToast('Undid the most recent paint.');
+    showToast('Undone');
   }
 
   async function clearPagePaints() {
@@ -390,9 +409,9 @@
     updateHistoryStatus();
     confirmClear = false;
     const clearButton = shadow.getElementById('clear-page');
-    clearButton.textContent = 'Clear page';
+    clearButton.textContent = 'Clear';
     clearButton.removeAttribute('data-confirm');
-    showToast('Removed PaintMyWeb colors from this page.');
+    showToast('Cleared');
   }
 
   function showToast(message) {
@@ -410,11 +429,10 @@
     for (const button of shadow.querySelectorAll('[data-mode]')) {
       button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
     }
-    const label = shadow.getElementById('mode-label');
-    if (label) label.textContent = mode === 'element' ? 'Background color' : 'Text color';
     const selectionButton = shadow.getElementById('start-selecting');
     if (selectionButton) {
-      selectionButton.textContent = isSelecting ? 'Done painting' : (mode === 'element' ? 'Pick element to paint' : 'Pick text to paint');
+      selectionButton.textContent = isSelecting ? 'Done' : 'Paint';
+      selectionButton.setAttribute('aria-label', isSelecting ? 'Done painting' : `Paint ${mode === 'element' ? 'elements' : 'text'}`);
     }
     if (isSelecting) updateHighlightLabel();
   }
@@ -424,7 +442,7 @@
     const status = shadow?.getElementById('save-status');
     const dot = shadow?.getElementById('save-dot');
     if (status) {
-      status.textContent = persistentForThisSession ? 'Saving is enabled for this site' : 'Session-only painting';
+      status.textContent = persistentForThisSession ? 'Saved on site' : 'Session only';
     }
     if (dot) dot.classList.toggle('is-on', persistentForThisSession);
   }
@@ -450,14 +468,14 @@
     highlight.style.display = 'none';
     highlightLabel.style.display = 'none';
     panel.classList.add('is-picking');
-    shadow.getElementById('start-selecting').textContent = 'Done painting';
-    showToast('Hover and click to paint multiple targets. Press Escape or Done painting to finish.');
+    shadow.getElementById('start-selecting').textContent = 'Done';
+    shadow.getElementById('start-selecting').setAttribute('aria-label', 'Done painting');
   }
 
   function toggleSelecting() {
     if (isSelecting) {
       stopSelecting();
-      showToast('Painting stopped.');
+      showToast('Done');
       return;
     }
     startSelecting();
@@ -470,7 +488,8 @@
     if (highlightLabel) highlightLabel.style.display = 'none';
     panel?.classList.remove('is-picking');
     if (shadow?.getElementById('start-selecting')) {
-      shadow.getElementById('start-selecting').textContent = mode === 'element' ? 'Pick element to paint' : 'Pick text to paint';
+      shadow.getElementById('start-selecting').textContent = 'Paint';
+      shadow.getElementById('start-selecting').setAttribute('aria-label', `Paint ${mode === 'element' ? 'elements' : 'text'}`);
     }
   }
 
@@ -557,7 +576,7 @@
     shadow = host.attachShadow({ mode: 'open' });
     shadow.innerHTML = `
       <style>
-        :host { all: initial; color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        :host { all: initial; color-scheme: dark; font-family: "Segoe UI Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-feature-settings: "cv11" 1, "ss01" 1; -webkit-font-smoothing: antialiased; }
         * { box-sizing: border-box; }
         button, input { font: inherit; }
         button { -webkit-tap-highlight-color: transparent; }
@@ -571,14 +590,14 @@
         .brand-mark i { display: block; width: 7px; height: 7px; border-radius: 2px; background: #f1b39e; }
         .brand-mark i:nth-child(2) { background: #f0d17d; } .brand-mark i:nth-child(3) { background: #9dd3be; } .brand-mark i:nth-child(4) { background: #9db8fb; }
         .brand { flex: 1; min-width: 0; }
-        .title { margin: 0; font-size: 14px; font-weight: 800; letter-spacing: -.045em; line-height: 1.25; }
+        .title { margin: 0; font-size: 15px; font-weight: 720; letter-spacing: -.035em; line-height: 1.2; }
         .title span { color: #f1b39e; }
-        .subtitle { margin: 3px 0 0; font-size: 10px; color: #978d87; }
+        .subtitle { display: none; }
         .icon-button { display: grid; place-items: center; width: 27px; height: 27px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #a99e97; cursor: pointer; }
         .icon-button:hover { background: #211c1a; border-color: #3b302c; color: #fff; }
         .icon-button svg { width: 15px; height: 15px; }
         .body { padding: 13px 14px 14px; }
-        .eyebrow { margin: 0 0 9px; color: #d4a290; font-size: 9px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+        .eyebrow { margin: 0 0 7px; color: #a8978e; font-size: 10px; font-weight: 650; letter-spacing: .025em; }
         .wheel-layout { display: grid; grid-template-columns: 164px 1fr; gap: 10px; align-items: center; }
         .wheel-frame { width: 164px; height: 164px; display: grid; place-items: center; position: relative; }
         canvas { display: block; width: 160px; height: 160px; border-radius: 50%; cursor: crosshair; touch-action: none; }
@@ -587,84 +606,92 @@
         .field-label { display: block; margin-bottom: 4px; color: #9d928b; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
         .hex-input { width: 100%; min-width: 0; height: 31px; padding: 0 7px; outline: 0; border: 1px solid #3a302c; border-radius: 6px; background: #181514; color: #f4e8e2; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; text-transform: uppercase; }
         .hex-input:focus { border-color: #ba8a78; box-shadow: 0 0 0 2px rgba(241,179,158,.1); }
-        .brightness { width: 100%; height: 14px; margin: 1px 0 0; accent-color: #f1b39e; cursor: pointer; }
-        .slider-label { display: flex; justify-content: space-between; color: #8c827c; font-size: 9px; }
+        .brightness { --shade-color: #F1B39E; appearance: none; display: block; width: 100%; height: 20px; margin: 3px 0 0; padding: 0; background: transparent; cursor: ew-resize; }
+        .brightness::-webkit-slider-runnable-track { height: 8px; border: 1px solid rgba(255,255,255,.28); border-radius: 999px; background: linear-gradient(90deg, #fff 0%, var(--shade-color) 50%, #000 100%); }
+        .brightness::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; margin-top: -4px; border: 2px solid #fff; border-radius: 50%; background: var(--shade-color); box-shadow: 0 1px 5px rgba(0,0,0,.55); }
+        .brightness::-moz-range-track { height: 8px; border: 1px solid rgba(255,255,255,.28); border-radius: 999px; background: linear-gradient(90deg, #fff 0%, var(--shade-color) 50%, #000 100%); }
+        .brightness::-moz-range-thumb { width: 10px; height: 10px; border: 2px solid #fff; border-radius: 50%; background: var(--shade-color); box-shadow: 0 1px 5px rgba(0,0,0,.55); }
+        .brightness:focus-visible { outline: 2px solid #f1b39e; outline-offset: 3px; border-radius: 999px; }
+        .slider-label { display: none; }
         .section-separator { height: 1px; background: #2a2523; margin: 14px 0 13px; }
         .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-        .mode-button { display: flex; align-items: center; gap: 8px; min-height: 45px; padding: 8px 9px; text-align: left; border: 1px solid #37302d; border-radius: 8px; color: #c4bab4; background: #171514; cursor: pointer; transition: background .14s,border-color .14s,color .14s; }
-        .mode-button svg { width: 17px; height: 17px; flex: 0 0 auto; }
+        .mode-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 9px; text-align: left; border: 1px solid #37302d; border-radius: 8px; color: #c4bab4; background: #171514; cursor: pointer; transition: background .14s,border-color .14s,color .14s; }
+        .mode-button svg { width: 18px; height: 18px; flex: 0 0 auto; }
         .mode-button strong { display: block; font-size: 11px; font-weight: 750; }
-        .mode-button small { display: block; color: #8e837d; margin-top: 2px; font-size: 9px; }
+        .mode-button small { display: none; }
         .mode-button[aria-pressed="true"] { border-color: #9b6c5c; color: #ffe3d8; background: #2a1d19; box-shadow: inset 0 0 0 1px rgba(241,179,158,.05); }
         .mode-button[aria-pressed="true"] small { color: #c39b8d; }
-        .primary { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 39px; padding: 9px 12px; margin-top: 10px; border: 1px solid #e7ad98; border-radius: 7px; background: #f1b39e; color: #231714; font-size: 11px; font-weight: 800; cursor: pointer; transition: background .15s,transform .15s; }
+        .primary { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 37px; padding: 8px 12px; margin-top: 9px; border: 1px solid #e7ad98; border-radius: 7px; background: #f1b39e; color: #231714; font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s,transform .15s; }
         .primary:hover { background: #ffd0bf; transform: translateY(-1px); }
         .primary svg { width: 15px; height: 15px; }
-        .hint { margin: 8px 1px 0; color: #928780; font-size: 10px; line-height: 1.5; }
-        .hint b { color: #d8b2a2; font-weight: 700; }
-        .save-row { display: flex; align-items: center; gap: 7px; margin-top: 12px; padding: 9px 10px; border: 1px solid #2c2725; border-radius: 7px; background: #121110; }
+        .hint { display: none; }
+        .hint b { font-weight: 700; }
+        .save-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 7px 9px; border: 1px solid #2c2725; border-radius: 7px; background: #121110; }
         .dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #77706b; box-shadow: 0 0 0 3px rgba(119,112,107,.12); }
         .dot.is-on { background: #90d1a0; box-shadow: 0 0 0 3px rgba(144,209,160,.1); }
         .save-copy { flex: 1; min-width: 0; color: #a99e97; font-size: 10px; }
-        .save-copy b { color: #e3d9d3; font-weight: 700; }
-        .history-status { margin-top: 8px; color: #706761; font-size: 9px; }
+        .save-copy b { color: #e3d9d3; font-weight: 650; }
+        .save-copy small { display: none; }
+        .history-status { margin-top: 6px; color: #8b817b; font-size: 10px; }
         .footer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 11px; }
-        .secondary { min-height: 31px; padding: 6px 8px; border: 1px solid #39312e; border-radius: 6px; background: #171514; color: #c6bbb4; font-size: 10px; font-weight: 650; cursor: pointer; }
+        .secondary { min-height: 30px; padding: 6px 8px; border: 1px solid #39312e; border-radius: 6px; background: #171514; color: #c6bbb4; font-size: 11px; font-weight: 600; cursor: pointer; }
         .secondary:hover { border-color: #806153; background: #211a17; color: #fff0e8; }
         .secondary[data-confirm="true"] { border-color: #a95a50; background: #2c1715; color: #ffd2ca; }
         .toast { position: fixed; left: 50%; bottom: 20px; z-index: 2147483647; max-width: min(360px,calc(100vw - 24px)); transform: translate(-50%,8px); opacity: 0; visibility: hidden; pointer-events: none; padding: 10px 13px; border: 1px solid #57453e; border-radius: 7px; background: #211a17; color: #f4ded4; font-size: 11px; line-height: 1.45; box-shadow: 0 10px 35px rgba(0,0,0,.35); transition: opacity .16s,transform .16s,visibility .16s; }
         .toast.visible { opacity: 1; visibility: visible; transform: translate(-50%,0); }
         .highlight { position: fixed; display: none; z-index: 2147483646; pointer-events: none; border: 2px solid #ffe0d3; outline: 1px solid #5a3026; border-radius: 3px; background: rgba(241,179,158,.10); box-shadow: 0 0 0 3px rgba(241,179,158,.17), 0 0 22px rgba(241,179,158,.36); }
-        .highlight-label { position: fixed; display: none; z-index: 2147483647; pointer-events: none; padding: 4px 6px; border-radius: 4px; background: #f1b39e; color: #211613; box-shadow: 0 4px 15px rgba(0,0,0,.3); font: 800 9px/1.2 Inter,ui-sans-serif,system-ui,sans-serif; letter-spacing: .06em; white-space: nowrap; }
-        .drag-hint { margin-left: auto; color: #736862; font-size: 9px; }
+        .highlight-label { position: fixed; display: none; z-index: 2147483647; pointer-events: none; padding: 4px 6px; border-radius: 4px; background: #f1b39e; color: #211613; box-shadow: 0 4px 15px rgba(0,0,0,.3); font: 700 9px/1.2 "Segoe UI Variable",system-ui,sans-serif; letter-spacing: .06em; white-space: nowrap; }
+        .drag-hint { display: grid; place-items: center; width: 24px; height: 24px; margin-left: auto; border-radius: 5px; color: #897a72; cursor: grab; }
+        .drag-hint:hover { background: #211c1a; color: #ead5cc; }
+        .drag-hint svg { width: 16px; height: 16px; }
         @media (max-width: 380px) { .panel { right: 8px; bottom: 8px; width: min(306px,calc(100vw - 16px)); max-height: calc(100vh - 16px); } }
         @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
       </style>
       <div class="highlight" id="highlight" aria-hidden="true"></div>
-      <div class="highlight-label" id="highlight-label" aria-hidden="true">ELEMENT PAINT</div>
+      <div class="highlight-label" id="highlight-label" aria-hidden="true">FILL</div>
       <section class="panel" id="panel" aria-label="PaintMyWeb palette" aria-hidden="true">
         <header class="header" id="drag-handle">
           <div class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-          <div class="brand"><h2 class="title">PaintMyWeb<span>.</span></h2><p class="subtitle">Pick a color. Paint a piece of the web.</p></div>
-          <span class="drag-hint">DRAG</span>
+          <div class="brand"><h2 class="title">PaintMyWeb<span>.</span></h2></div>
+          <span class="drag-hint" title="Drag palette" aria-label="Drag palette">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="9" cy="5" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg>
+          </span>
           <button class="icon-button" id="close-panel" type="button" aria-label="Close PaintMyWeb palette" title="Close palette">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
         <div class="body">
-          <p class="eyebrow">01 / Choose a color</p>
           <div class="wheel-layout">
             <div class="wheel-frame"><canvas id="color-wheel" width="220" height="220" tabindex="0" role="application" aria-label="Color wheel. Click or drag to choose a hue and saturation."></canvas></div>
             <div class="color-side">
               <div class="swatch" id="selected-color">#F1B39E</div>
-              <label><span class="field-label">HEX value</span><input class="hex-input" id="hex-value" type="text" maxlength="7" value="#F1B39E" autocomplete="off" spellcheck="false" aria-label="HEX color value"></label>
-              <label><span class="field-label">Brightness</span><input class="brightness" id="brightness" type="range" min="18" max="100" value="95" aria-label="Color brightness"><span class="slider-label"><span>Dark</span><span>Bright</span></span></label>
+              <label><span class="field-label">HEX</span><input class="hex-input" id="hex-value" type="text" maxlength="7" value="#F1B39E" autocomplete="off" spellcheck="false" aria-label="HEX color value"></label>
+              <label><span class="field-label">Shade</span><input class="brightness" id="brightness" type="range" min="0" max="100" value="53" aria-label="Shade from white through the selected color to black" title="White to black"></label>
             </div>
           </div>
 
           <div class="section-separator"></div>
-          <p class="eyebrow">02 / What to paint</p>
+          <p class="eyebrow">Paint</p>
           <div class="mode-grid">
-            <button class="mode-button" type="button" data-mode="element" aria-pressed="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M7 8h10M7 12h6"/></svg>
-              <span><strong>Element</strong><small>Background fill</small></span>
+            <button class="mode-button" type="button" data-mode="element" aria-pressed="true" title="Paint element background">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 13 8-8 7 7-8 8-7-7Z" fill="currentColor" fill-opacity=".13"/><path d="m4 13 8-8 7 7-8 8-7-7Z"/><path d="m12 5 3-3 6 6-3 3"/><path d="M3 16 9 10"/><path d="M18.5 18.5c0-1 1.5-2.6 1.5-2.6s1.5 1.6 1.5 2.6a1.5 1.5 0 0 1-3 0Z" fill="currentColor" fill-opacity=".25"/></svg>
+              <span><strong>Element</strong></span>
             </button>
             <button class="mode-button" type="button" data-mode="text" aria-pressed="false">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6V4h16v2M12 4v16M8 20h8"/></svg>
-              <span><strong>Text</strong><small>Text color</small></span>
+              <span><strong>Text</strong></span>
             </button>
           </div>
-          <button class="primary" id="start-selecting" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 3 14 10-7 1-3 7L5 3Z"/></svg>
-            Pick element to paint
+          <button class="primary" id="start-selecting" type="button" aria-label="Start painting">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 3 14 10-7 1-3 7L5 3Z"/></svg>
+            Paint
           </button>
-          <p class="hint"><b>How to paint:</b> choose Element or Text once, then click Pick once. Keep clicking different targets to paint them all with the selected mode and color. Click <b>Done painting</b> or press <b>Escape</b> to finish.</p>
 
-          <div class="save-row"><span class="dot" id="save-dot"></span><span class="save-copy"><b id="save-status">Session-only painting</b><br>Paints are stored on this device, never sent to a server.</span></div>
-          <div class="history-status" id="history-status">0 active paints on this page</div>
+          <div class="save-row" title="Paints stay on this device."><span class="dot" id="save-dot"></span><span class="save-copy"><b id="save-status">Session only</b></span></div>
+          <div class="history-status" id="history-status">0 paints</div>
           <div class="footer-actions">
-            <button class="secondary" id="undo-paint" type="button">↶ Undo last paint</button>
-            <button class="secondary" id="clear-page" type="button">Clear page</button>
+            <button class="secondary" id="undo-paint" type="button" aria-label="Undo last paint" title="Undo last paint">↶ Undo</button>
+            <button class="secondary" id="clear-page" type="button" aria-label="Clear page paints" title="Clear page paints">Clear</button>
           </div>
         </div>
       </section>
@@ -688,12 +715,12 @@
       if (!confirmClear) {
         confirmClear = true;
         button.dataset.confirm = 'true';
-        button.textContent = 'Confirm clear?';
-        showToast('Click Confirm clear? again to remove all paints on this page.');
+        button.textContent = 'Confirm';
+        showToast('Confirm clear');
         setTimeout(() => {
           if (confirmClear) {
             confirmClear = false;
-            button.textContent = 'Clear page';
+            button.textContent = 'Clear';
             button.removeAttribute('data-confirm');
           }
         }, 3500);
@@ -716,7 +743,7 @@
     });
 
     shadow.getElementById('brightness').addEventListener('input', event => {
-      value = Number(event.target.value) / 100;
+      shadePosition = Number(event.target.value);
       colorFromWheel();
     });
 
@@ -725,12 +752,15 @@
       const hex = normalizeHex(hexField.value);
       if (!hex) {
         hexField.value = currentColor;
-        showToast('Enter a HEX color such as #F1B39E.');
+        showToast('Invalid HEX');
         return;
       }
       currentColor = hex;
-      ({ h: hue, s: saturation, v: value } = hexToHsv(hex));
-      shadow.getElementById('brightness').value = String(Math.round(value * 100));
+      const hsv = hexToHsv(hex);
+      hue = hsv.h;
+      saturation = hsv.s;
+      shadePosition = 50 + (1 - hsv.v) * 50;
+      shadow.getElementById('brightness').value = String(Math.round(shadePosition));
       updateColorReadout();
     });
     hexField.addEventListener('keydown', event => {
@@ -775,7 +805,7 @@
     if (event.key === 'Escape' && isSelecting) {
       event.preventDefault();
       stopSelecting();
-      showToast('Selection cancelled.');
+      showToast('Cancelled');
     }
   }
 

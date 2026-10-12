@@ -3,7 +3,7 @@
 
   <h1>PaintMyWeb</h1>
 
-  <p><strong>Your browser. Your colors. Your websites.</strong></p>
+  <p><strong>Paint webpage elements and text with your own colors.</strong></p>
 
   <p>A personal Chrome extension for recoloring individual elements on the websites you browse.</p>
 </div>
@@ -28,6 +28,12 @@ It is deliberately **not a theme maker**. There are no shared themes, user accou
 - [License](#license)
 - [Project credit](#project-credit)
 
+## v2.1
+
+- Reduced UI copy and tightened the palette.
+- Replaced the brightness track with a white-to-color-to-black shade selector.
+- Updated typography, drag handle, and Element fill-bucket icon.
+
 ## Features
 
 - **Floating palette:** a compact panel injected over the current webpage. It stays visible during target selection and can be dragged out of the way.
@@ -46,7 +52,7 @@ It is deliberately **not a theme maker**. There are no shared themes, user accou
 
 ## Install in Chrome
 
-PaintMyWeb v2.0.0 is supplied as an unpacked Chrome extension using Manifest V3. It is not currently a Chrome Web Store release.
+PaintMyWeb v2.1.0 is supplied as an unpacked Chrome extension using Manifest V3. It is not currently a Chrome Web Store release.
 
 1. Download and extract `PaintMyWeb.zip`.
 2. Open `chrome://extensions` in Chrome.
@@ -55,8 +61,8 @@ PaintMyWeb v2.0.0 is supplied as an unpacked Chrome extension using Manifest V3.
 5. Select the extracted `PaintMyWeb` folder, the folder containing `manifest.json`.
 6. Pin PaintMyWeb from the Extensions menu for convenient access.
 7. Open a regular `http://` or `https://` webpage and click the PaintMyWeb toolbar icon.
-8. Keep **Keep changes after refresh** enabled if you want persistence. When prompted, grant access to that website.
-9. Click **Open paint palette**, choose a color and a mode, then click **Pick element to paint**.
+8. Keep **Remember paints** enabled if you want persistence. When prompted, grant access to that website.
+9. Click **Open paint palette**, choose a color and a mode, then click **Paint**.
 
 ### Quick install checklist
 
@@ -69,14 +75,14 @@ PaintMyWeb v2.0.0 is supplied as an unpacked Chrome extension using Manifest V3.
 
 1. Open a webpage where you want to make a personal color adjustment.
 2. Click the PaintMyWeb extension icon and open the floating palette.
-3. Pick a color using the wheel, brightness control, or HEX field.
+3. Pick a color using the wheel, white-to-black shade control, or HEX field.
 4. Choose **Element** to change target backgrounds or **Text** to change text colors. Choose the mode once for the batch.
-5. Click **Pick element to paint** or **Pick text to paint** once. Move the pointer over the page; the outline previews the target.
+5. Click **Paint** once. Move the pointer over the page; the outline previews the target.
 6. Click a target to paint it. **PaintMyWeb stays in selection mode**, so you can keep clicking as many targets as needed using the same mode and color.
-7. To switch from backgrounds to text or vice versa, choose the other mode in the floating palette. To finish the batch, click **Done painting** or press `Escape`.
-8. Use **Undo** to reverse a recent paint, or **Clear page** to remove PaintMyWeb paints for the current page.
+7. To switch from backgrounds to text or vice versa, choose the other mode in the floating palette. To finish the batch, click **Done** or press `Escape`.
+8. Use **Undo** to reverse a recent paint, or **Clear** to remove PaintMyWeb paints for the current page.
 
-Disable **Keep changes after refresh** when you only want to experiment in the current page session without opting into persistent site access.
+Disable **Remember paints** when you only want to experiment in the current page session without opting into persistent site access.
 
 ## How it works
 

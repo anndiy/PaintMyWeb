@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PaintMyWeb",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Paint individual webpage elements and text with personal colors.",
   "minimum_chrome_version": "102",
   "permissions": [

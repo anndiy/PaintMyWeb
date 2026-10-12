@@ -27,9 +27,9 @@ async function initialize() {
     activeUrl = tab?.url || null;
     if (!activeUrl) {
       siteName.textContent = 'No active webpage';
-      sitePath.textContent = 'Open a regular website first.';
-      permissionNote.textContent = 'PaintMyWeb cannot run on browser settings or extension pages.';
-      setError('Switch to a regular HTTP or HTTPS page to use PaintMyWeb.');
+      sitePath.textContent = 'Open a webpage.';
+      permissionNote.textContent = 'Unavailable on browser pages.';
+      setError('Open a regular website to use PaintMyWeb.');
       return;
     }
 
@@ -38,7 +38,7 @@ async function initialize() {
     if (!currentOriginPattern) {
       siteName.textContent = url.protocol === 'file:' ? 'Local file' : url.hostname || url.protocol;
       sitePath.textContent = activeUrl;
-      permissionNote.textContent = 'Chrome restricts extensions on this page.';
+      permissionNote.textContent = 'This page is restricted.';
       setError('PaintMyWeb works on regular HTTP and HTTPS websites, not browser-internal pages or the Chrome Web Store.');
       return;
     }
@@ -51,30 +51,30 @@ async function initialize() {
     if (status?.ok && status.granted) {
       remember.checked = true;
       permissionNote.textContent = status.savedCount
-        ? `Saved locally: ${status.savedCount} paint${status.savedCount === 1 ? '' : 's'} on this site.`
-        : 'Saving is enabled for this site. New paints will survive refreshes.';
+        ? `${status.savedCount} saved paint${status.savedCount === 1 ? '' : 's'}`
+        : 'Saving enabled';
     } else {
       remember.checked = true;
-      permissionNote.textContent = 'Saving asks for access to this site only. Uncheck to paint for this session only.';
+      permissionNote.textContent = 'Site access is needed to save.';
     }
     startButton.disabled = false;
   } catch (error) {
-    siteName.textContent = 'Could not inspect this tab';
-    setError(error?.message || 'Could not initialize PaintMyWeb.');
+    siteName.textContent = 'Cannot read this tab';
+    setError(error?.message || 'Initialization failed.');
   }
 }
 
 remember.addEventListener('change', () => {
   if (!currentOriginPattern) return;
   permissionNote.textContent = remember.checked
-    ? 'PaintMyWeb will ask for permission to remember changes on this site.'
-    : 'Session-only mode: new changes will not be saved for future visits.';
+    ? 'Site access needed to save.'
+    : 'Session only';
 });
 
 startButton.addEventListener('click', async () => {
   if (!activeTab?.id || !activeUrl || !canInject) return;
   startButton.disabled = true;
-  startButton.querySelector('span').textContent = 'Opening palette…';
+  startButton.querySelector('span').textContent = 'Opening…';
   setError('');
 
   let persistent = false;
@@ -89,10 +89,10 @@ startButton.addEventListener('click', async () => {
         const registered = await chrome.runtime.sendMessage({ type: 'PMW_REGISTER_SITE', url: activeUrl });
         if (!registered?.ok) {
           persistent = false;
-          permissionNote.textContent = 'Could not enable automatic restoration. Painting will be session-only.';
+          permissionNote.textContent = 'Saving unavailable. Session only.';
         }
       } else {
-        permissionNote.textContent = 'Site access was not granted. You can still paint this page for the current session.';
+        permissionNote.textContent = 'Session only';
       }
     }
 
@@ -105,7 +105,7 @@ startButton.addEventListener('click', async () => {
     if (response && response.ok === false) throw new Error(response.error || 'Could not open the palette.');
     window.close();
   } catch (error) {
-    setError(error?.message || 'Could not open PaintMyWeb on this page.');
+    setError(error?.message || 'Could not open this page.');
     startButton.disabled = false;
     startButton.querySelector('span').textContent = 'Try again';
   }
