@@ -4,6 +4,7 @@ const remember = document.getElementById('remember');
 const permissionNote = document.getElementById('permission-note');
 const errorNote = document.getElementById('error-note');
 const startButton = document.getElementById('start');
+
 let activeTab = null;
 let activeUrl = null;
 let currentOriginPattern = null;
@@ -102,7 +103,9 @@ startButton.addEventListener('click', async () => {
       persistent,
       sourceUrl: activeUrl
     });
-    if (response && response.ok === false) throw new Error(response.error || 'Could not open the palette.');
+    if (!response?.ok) {
+      throw new Error(response?.error || 'PaintMyWeb could not connect to this page. Reload the page and try again.');
+    }
     window.close();
   } catch (error) {
     setError(error?.message || 'Could not open this page.');

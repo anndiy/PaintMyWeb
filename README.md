@@ -28,6 +28,10 @@ It is deliberately **not a theme maker**. There are no shared themes, user accou
 - [License](#license)
 - [Project credit](#project-credit)
 
+## v2.1.1
+
+This bug-fix release recreates the floating palette if a single-page app replaces the DOM around it (for example, when navigating between GitHub pages). It also reports a missing content-script response instead of silently closing the launcher.
+
 ## v2.1
 
 - Reduced UI copy and tightened the palette.
@@ -52,7 +56,7 @@ It is deliberately **not a theme maker**. There are no shared themes, user accou
 
 ## Install in Chrome
 
-PaintMyWeb v2.1.0 is supplied as an unpacked Chrome extension using Manifest V3. It is not currently a Chrome Web Store release.
+PaintMyWeb v2.1.1 is supplied as an unpacked Chrome extension using Manifest V3. It is not currently a Chrome Web Store release.
 
 1. Download and extract `PaintMyWeb.zip`.
 2. Open `chrome://extensions` in Chrome.
@@ -150,7 +154,7 @@ Other limitations:
 
 - Complex frames, canvas-rendered interfaces, closed Shadow DOM, and browser-protected surfaces may not be targetable like ordinary document elements.
 - A site's scripts may replace elements or rewrite inline styles. PaintMyWeb retries after some DOM replacements, but cannot promise compatibility with every website.
-- Unusual single-page application routing patterns may require a reload before saved paints are restored.
+- Single-page applications can replace parts of their DOM during navigation. PaintMyWeb now detects when its floating palette host is detached and rebuilds the UI; saved rule targeting can still be affected when the website changes its markup.
 - Host access is not requested for every website upfront; it is requested per site when persistence is enabled.
 - This project has not been published or certified through the Chrome Web Store review process.
 
@@ -199,7 +203,7 @@ No compilation or package installation is required.
 - [ ] Undo multiple paints on the same element and on different elements.
 - [ ] Clear a page and confirm PaintMyWeb's inline overrides are removed.
 - [ ] Grant site access, paint an element, refresh, and confirm the color returns.
-- [ ] Visit a different path and confirm paints do not spill onto it.
+- [ ] Navigate between paths on a single-page app (for example, GitHub) and confirm the palette can be opened again.
 - [ ] Test an element without an ID and inspect its selector after refresh.
 - [ ] Try a restricted URL such as `chrome://extensions` and confirm it cannot be painted.
 

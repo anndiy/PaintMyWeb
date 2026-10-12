@@ -447,8 +447,36 @@
     if (dot) dot.classList.toggle('is-on', persistentForThisSession);
   }
 
+  function ensureUi({ preserveOpen = true } = {}) {
+    if (host?.isConnected && panel?.isConnected && shadow) return;
+
+    const shouldReopen = preserveOpen && Boolean(panel?.classList.contains('is-open'));
+    const shouldResumeSelection = shouldReopen && isSelecting;
+    const shouldPreservePersistence = persistentForThisSession;
+
+    // Stop targeting while rebuilding. A DOM replacement may have removed the target too.
+    if (isSelecting) stopSelecting();
+    host = null;
+    shadow = null;
+    panel = null;
+    highlight = null;
+    highlightLabel = null;
+    canvas = null;
+    canvasContext = null;
+    createUi();
+    setPersistentMode(shouldPreservePersistence);
+
+    if (shouldReopen) {
+      panel.classList.add('is-open');
+      panel.setAttribute('aria-hidden', 'false');
+      if (shouldResumeSelection) startSelecting();
+    }
+  }
+
   function openPanel(persistent) {
-    if (!host) createUi();
+    // SPA navigation (including GitHub Turbo navigation) can detach the injected host
+    // without destroying this content-script context. Rebuild it before opening.
+    ensureUi({ preserveOpen: false });
     setPersistentMode(persistent);
     panel.classList.add('is-open');
     panel.setAttribute('aria-hidden', 'false');
@@ -772,8 +800,8 @@
 
     attachDragBehavior();
     updateColorReadout();
-    setMode('element');
-    setPersistentMode(false);
+    setMode(mode);
+    setPersistentMode(persistentForThisSession);
     updateHistoryStatus();
   }
 
@@ -817,11 +845,15 @@
       const nextKey = getPageKey();
       if (nextKey !== activePageKey) {
         activePageKey = nextKey;
+        stopSelecting();
         restoreOriginalStyles();
         activeActions = [];
+        ensureUi();
         void restoreSavedRules();
         return;
       }
+      // Framework navigation can replace documentElement children and detach the palette.
+      ensureUi();
       applyActiveActionsToCurrentDom();
     });
   }
@@ -833,6 +865,7 @@
     stopSelecting();
     restoreOriginalStyles();
     activeActions = [];
+    ensureUi();
     await restoreSavedRules();
   }
 
